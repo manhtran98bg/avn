@@ -1,0 +1,8 @@
+APP/venv
+APP/log*.txt
+APP/log.txt
+APP_2/venv
+APP_2/log*.txt
+APP_v2/venv
+APP_v2/log*.txt
+
