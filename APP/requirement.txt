@@ -1,0 +1,10 @@
+opencv-python==4.10.0.84
+redis==5.0.8
+paho-mqtt==2.1.0
+requests==2.31.0
+python-dotenv==1.0.1
+pymongo==4.8.0
+flask==3.0.3
+flask-cors==5.0.0
+pillow==10.4.0
+waitress==3.0.0
