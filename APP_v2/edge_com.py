@@ -69,6 +69,7 @@ class Edge_Handler(threading.Thread):
 
         self.__edge_last_connect = {}
         self.__blur_data = {}
+      
 
         self.__connect()
         self.__checkEdgeTimeout()
@@ -95,6 +96,13 @@ class Edge_Handler(threading.Thread):
                         if current_time - self.__edge_last_connect[edge_id] >= EDGE_CONNECTION_TIMEOUT:
                             # Nếu quá thời gian timeout, cập nhật trạng thái ngắt kết nối
                             if self.__edge_connection_status.get(edge_id) != EDGE_CONNECTION_STATE.NO:
+                                logging.info(
+                                    "Edge timeout -> disconnected: edge_id=%s at=%s (last_seen=%.3f, now=%.3f)",
+                                    edge_id,
+                                    datetime.now().isoformat(timespec="seconds"),
+                                    self.__edge_last_connect[edge_id],
+                                    current_time
+                                )
                                 self.__db.updateEdgeStatus(edge_id, EDGE_CONNECTION_STATE.NO)
                                 camera_ids = self.__db.getCameraByEdge(edge_id)
                                 for camera_id in camera_ids:
@@ -103,13 +111,22 @@ class Edge_Handler(threading.Thread):
                         else:
                             # Nếu chưa quá thời gian timeout, đảm bảo trạng thái là kết nối
                             if self.__edge_connection_status.get(edge_id) != EDGE_CONNECTION_STATE.YES:
+                                logging.info(
+                                    "Edge reconnected: edge_id=%s at=%s",
+                                    edge_id,
+                                    datetime.now().isoformat(timespec="seconds")
+                                )
                                 self.__db.updateEdgeStatus(edge_id, EDGE_CONNECTION_STATE.YES)
                                 camera_ids = self.__db.getCameraByEdge(edge_id)
                                 self.__edge_connection_status[edge_id] = EDGE_CONNECTION_STATE.YES
                     else:
                         # Nếu edge không có trong danh sách đã kết nối, kiểm tra xem đã được đánh dấu là ngắt kết nối chưa
                         if self.__edge_connection_status.get(edge_id) != EDGE_CONNECTION_STATE.NO:
-                            logging.info(f"Edge {edge_id} not connected")
+                            logging.info(
+                                "Edge not connected -> disconnected: edge_id=%s at=%s",
+                                edge_id,
+                                datetime.now().isoformat(timespec="seconds")
+                            )
                             self.__db.updateEdgeStatus(edge_id, EDGE_CONNECTION_STATE.NO)
                             camera_ids = self.__db.getCameraByEdge(edge_id)
                             for camera_id in camera_ids:

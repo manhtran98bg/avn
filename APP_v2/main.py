@@ -9,13 +9,18 @@ from redis_clear_data import clear_redis_data
 
 from threading import Thread
 import logging
+import sys
 from typing import List
 
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    filename="logs3.txt",
-                    filemode="a")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler("logs3.txt", mode="a"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
 
 class ThreadManager:
     def __init__(self):
@@ -42,7 +47,6 @@ class ThreadManager:
             logging.info(f"Thread {thread.name} has stopped.")
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     try:
         clear_redis_data()
         thread_manager = ThreadManager()

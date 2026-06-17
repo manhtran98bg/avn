@@ -193,9 +193,13 @@ class DistanceCalculator(threading.Thread):
         if not all_is_connected:
             # Nếu chưa hoàn thành kiểm tra ban đầu hoặc có sự thay đổi trạng thái kết nối từ tốt sang xấu
             if not self.__initial_check_done or self.__previous_connection_status:
-                logging.warning(f"Disconnection detected in AI edges or cameras. Stopping all robots. (Count: {self.__initial_count + 1}/3)")
+                logging.info(f"Disconnection detected in AI edges or cameras. Stopping all robots. (Count: {self.__initial_count + 1}/3)")
                 self.__previous_connection_status = False
             for robot_code in data:
+                logging.info(
+                    "AGV_PAUSE_TRIGGER reason=system_disconnection robot_code=%s",
+                    robot_code
+                )
                 self.__saveDistanceData(robot_code, "Disconnection", "System Error", 0, combined_status["pause"])
             self.__redis.saveCombinedStatus(combined_status)
             
@@ -340,26 +344,59 @@ class DistanceCalculator(threading.Thread):
                 #     and cls == MODEL_OBJECT.FORKLIFT_STAND
                 # ):
                 #     continue
+                pause_reason = None
+                threshold_desc = None
                 if robot_path.size == 0:
-                    if not (safe_dist < self.__config_distance_human
-                        and cls == MODEL_OBJECT.HUMAN_BOTTOM
-                    or safe_dist < self.__config_distance_head
-                        and cls == MODEL_OBJECT.HUMAN_HEAD
-                    or 1000 <safe_dist < self.__config_distance_forklift
-                        and cls == MODEL_OBJECT.FORKLIFT_SEAT
-                    or 1500 < safe_dist < self.__config_distance_forklift
-                        and cls == MODEL_OBJECT.FORKLIFT_STAND
-                    ):
+                    if safe_dist < self.__config_distance_human and cls == MODEL_OBJECT.HUMAN_BOTTOM:
+                        pause_reason = "no_path_human_bottom_safe_dist"
+                        threshold_desc = f"safe_dist<{self.__config_distance_human}"
+                    elif safe_dist < self.__config_distance_head and cls == MODEL_OBJECT.HUMAN_HEAD:
+                        pause_reason = "no_path_human_head_safe_dist"
+                        threshold_desc = f"safe_dist<{self.__config_distance_head}"
+                    elif 1000 < safe_dist < self.__config_distance_forklift and cls == MODEL_OBJECT.FORKLIFT_SEAT:
+                        pause_reason = "no_path_forklift_seat_safe_dist_range"
+                        threshold_desc = f"1000<safe_dist<{self.__config_distance_forklift}"
+                    elif 1500 < safe_dist < self.__config_distance_forklift and cls == MODEL_OBJECT.FORKLIFT_STAND:
+                        pause_reason = "no_path_forklift_stand_safe_dist_range"
+                        threshold_desc = f"1500<safe_dist<{self.__config_distance_forklift}"
+                    else:
                         continue
                 else:
-                    if not ( (safe_min_dist < 2000
-                            and cls != MODEL_OBJECT.FORKLIFT_STAND and cls != MODEL_OBJECT.FORKLIFT_SEAT)
-                        or (1500 < safe_dist < 4000
-                            and cls == MODEL_OBJECT.FORKLIFT_STAND)
-                        or (1500 < safe_dist <4000
-                            and cls == MODEL_OBJECT.FORKLIFT_SEAT) ):
+                    if safe_min_dist < 2000 and cls != MODEL_OBJECT.FORKLIFT_STAND and cls != MODEL_OBJECT.FORKLIFT_SEAT:
+                        pause_reason = "path_non_forklift_safe_min_dist"
+                        threshold_desc = "safe_min_dist<2000"
+                    elif 1500 < safe_dist < 4000 and cls == MODEL_OBJECT.FORKLIFT_STAND:
+                        pause_reason = "path_forklift_stand_safe_dist_range"
+                        threshold_desc = "1500<safe_dist<4000"
+                    elif 1500 < safe_dist < 4000 and cls == MODEL_OBJECT.FORKLIFT_SEAT:
+                        pause_reason = "path_forklift_seat_safe_dist_range"
+                        threshold_desc = "1500<safe_dist<4000"
+                    else:
                         continue
 
+                logging.info(
+                    "AGV_PAUSE_TRIGGER reason=%s threshold=%s robot_code=%s camera_id=%s "
+                    "object_class=%s robot_status=%s robot_pos=(%.2f,%.2f) object_pos=(%.2f,%.2f) "
+                    "absolute_dist=%.2f safe_dist=%.2f absolute_min_dist=%.2f safe_min_dist=%.2f "
+                    "has_path=%s path_points=%s object_radius=%s",
+                    pause_reason,
+                    threshold_desc,
+                    robot_code,
+                    camera_id,
+                    cls,
+                    status,
+                    robot_x,
+                    robot_y,
+                    obj_x,
+                    obj_y,
+                    absolute_dist,
+                    safe_dist,
+                    absolute_min_dist,
+                    safe_min_dist,
+                    robot_path.size != 0,
+                    robot_path.shape[0],
+                    OBJECT_MAPPING[cls][1]
+                )
                 self.__saveDistanceData(robot_code, camera_id, cls, safe_dist, below_threshold)
                 return
         self.__saveDistanceData(robot_code, " All ", "", 0, above_threshold)
