@@ -133,6 +133,7 @@ class DistanceCalculator(threading.Thread):
         # Kiểm tra trạng thái kết nối ngay khi khởi động
         self.__initial_check_done = False
         self.__initial_count = 1
+        self.__pause_logged_robots = set()
 
         self.__queryConfig()
     @Worker.employ
@@ -183,6 +184,7 @@ class DistanceCalculator(threading.Thread):
         self.__turn_on_ai  = self.__turn_on_ai.get("status")
         if self.__turn_on_ai == "False":
             for robot_code in data:
+                self.__markResume(robot_code)
                 self.__saveDistanceData(robot_code, "All", "", 0, combined_status["resume"])
             if not TURN_OFF_AI:
                 self.__redis.saveCombinedStatus(combined_status)
@@ -196,10 +198,11 @@ class DistanceCalculator(threading.Thread):
                 logging.info(f"Disconnection detected in AI edges or cameras. Stopping all robots. (Count: {self.__initial_count + 1}/3)")
                 self.__previous_connection_status = False
             for robot_code in data:
-                logging.info(
-                    "AGV_PAUSE_TRIGGER reason=system_disconnection robot_code=%s",
-                    robot_code
-                )
+                if self.__shouldLogPause(robot_code):
+                    logging.info(
+                        "AGV_PAUSE_TRIGGER reason=system_disconnection robot_code=%s",
+                        robot_code
+                    )
                 self.__saveDistanceData(robot_code, "Disconnection", "System Error", 0, combined_status["pause"])
             self.__redis.saveCombinedStatus(combined_status)
             
@@ -216,6 +219,7 @@ class DistanceCalculator(threading.Thread):
         self.__map.genBackground()
         if not object_data:
             for robot_code in data:
+                self.__markResume(robot_code)
                 self.__saveDistanceData(robot_code, "All", "", 0, combined_status["resume"])
         else:
             self.__drawObject(object_data)
@@ -230,6 +234,7 @@ class DistanceCalculator(threading.Thread):
                         in_exclusion_zone = True
                         break
                 if in_exclusion_zone:
+                    self.__markResume(robot_code)
                     self.__saveDistanceData(robot_code, "All", "", 0, combined_status["resume"])
                 else:
                     self.__processData(object_data, robot_code, robot_data, combined_status["resume"], combined_status["pause"])
@@ -249,6 +254,22 @@ class DistanceCalculator(threading.Thread):
         except Exception as e:
             logging.error(f"Error checking connection status: {e}")
             return False
+
+    def __shouldLogPause(self, robot_code: str):
+        """
+        Return True only when a robot enters pause after being in a non-pause state.
+        """
+        if robot_code in self.__pause_logged_robots:
+            return False
+        self.__pause_logged_robots.add(robot_code)
+        return True
+
+    def __markResume(self, robot_code: str):
+        """
+        Allow the next pause of this robot to be logged as a new event.
+        """
+        self.__pause_logged_robots.discard(robot_code)
+
     def __drawObject(self, object_data: dict):
         """
         Draw all object to map
@@ -296,6 +317,7 @@ class DistanceCalculator(threading.Thread):
         #     if cv2.pointPolygonTest(polygon_point, robot_position, False) >= 0:
         #         continue
         if status not in [1, 2, 4, 5, 8]:
+            self.__markResume(robot_code)
             self.__saveDistanceData(robot_code, " All ", "", 0, above_threshold)
             return
         robot_path: np.ndarray = np.array([eval(points)[:2] for points in robot_data["path"]])
@@ -374,31 +396,33 @@ class DistanceCalculator(threading.Thread):
                     else:
                         continue
 
-                logging.info(
-                    "AGV_PAUSE_TRIGGER reason=%s threshold=%s robot_code=%s camera_id=%s "
-                    "object_class=%s robot_status=%s robot_pos=(%.2f,%.2f) object_pos=(%.2f,%.2f) "
-                    "absolute_dist=%.2f safe_dist=%.2f absolute_min_dist=%.2f safe_min_dist=%.2f "
-                    "has_path=%s path_points=%s object_radius=%s",
-                    pause_reason,
-                    threshold_desc,
-                    robot_code,
-                    camera_id,
-                    cls,
-                    status,
-                    robot_x,
-                    robot_y,
-                    obj_x,
-                    obj_y,
-                    absolute_dist,
-                    safe_dist,
-                    absolute_min_dist,
-                    safe_min_dist,
-                    robot_path.size != 0,
-                    robot_path.shape[0],
-                    OBJECT_MAPPING[cls][1]
-                )
+                if self.__shouldLogPause(robot_code):
+                    logging.info(
+                        "AGV_PAUSE_TRIGGER reason=%s threshold=%s robot_code=%s camera_id=%s "
+                        "object_class=%s robot_status=%s robot_pos=(%.2f,%.2f) object_pos=(%.2f,%.2f) "
+                        "absolute_dist=%.2f safe_dist=%.2f absolute_min_dist=%.2f safe_min_dist=%.2f "
+                        "has_path=%s path_points=%s object_radius=%s",
+                        pause_reason,
+                        threshold_desc,
+                        robot_code,
+                        camera_id,
+                        cls,
+                        status,
+                        robot_x,
+                        robot_y,
+                        obj_x,
+                        obj_y,
+                        absolute_dist,
+                        safe_dist,
+                        absolute_min_dist,
+                        safe_min_dist,
+                        robot_path.size != 0,
+                        robot_path.shape[0],
+                        OBJECT_MAPPING[cls][1]
+                    )
                 self.__saveDistanceData(robot_code, camera_id, cls, safe_dist, below_threshold)
                 return
+        self.__markResume(robot_code)
         self.__saveDistanceData(robot_code, " All ", "", 0, above_threshold)
 
     def __saveDistanceData(self, robot_code: str, camera_id: str, obj_cls: str, distance: float, threshold_dict: dict):
